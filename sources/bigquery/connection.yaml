@@ -1,0 +1,4 @@
+name: bigquery
+type: bigquery
+options:
+  authenticator: gcloud-cli
