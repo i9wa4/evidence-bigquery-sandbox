@@ -1,3 +1,6 @@
+deployment:
+  basePath: /evidence-bigquery-sandbox
+
 plugins:
   components:
     "@evidence-dev/core-components": {}
