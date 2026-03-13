@@ -85,8 +85,7 @@ GROUP BY p.category
 ORDER BY revenue DESC
 ```
 
-```js
-const pieConfig = {
+<ECharts config={{
   tooltip: { trigger: 'item', formatter: '{b}: ${c} ({d}%)' },
   legend: { orient: 'vertical', left: 'left' },
   series: [
@@ -99,10 +98,7 @@ const pieConfig = {
       data: category_pie.map(d => ({ name: d.category, value: d.revenue }))
     }
   ]
-}
-```
-
-<ECharts config={pieConfig} height=450 />
+}} height={450} />
 
 ---
 
@@ -124,23 +120,16 @@ ORDER BY revenue DESC
 LIMIT 6
 ```
 
-```js
-const maxRevenue = Math.max(...radar_metrics.map(d => d.revenue))
-const maxOrders  = Math.max(...radar_metrics.map(d => d.orders))
-const maxBrands  = Math.max(...radar_metrics.map(d => d.brands))
-const maxPrice   = Math.max(...radar_metrics.map(d => d.avg_price))
-const maxMargin  = Math.max(...radar_metrics.map(d => d.avg_margin))
-
-const radarConfig = {
+<ECharts config={{
   tooltip: {},
   legend: { data: radar_metrics.map(d => d.category) },
   radar: {
     indicator: [
-      { name: 'Revenue',   max: maxRevenue },
-      { name: 'Orders',    max: maxOrders  },
-      { name: 'Brands',    max: maxBrands  },
-      { name: 'Avg Price', max: maxPrice   },
-      { name: 'Avg Margin',max: maxMargin  }
+      { name: 'Revenue',    max: Math.max(...radar_metrics.map(d => d.revenue)) },
+      { name: 'Orders',     max: Math.max(...radar_metrics.map(d => d.orders)) },
+      { name: 'Brands',     max: Math.max(...radar_metrics.map(d => d.brands)) },
+      { name: 'Avg Price',  max: Math.max(...radar_metrics.map(d => d.avg_price)) },
+      { name: 'Avg Margin', max: Math.max(...radar_metrics.map(d => d.avg_margin)) }
     ]
   },
   series: [
@@ -152,7 +141,4 @@ const radarConfig = {
       }))
     }
   ]
-}
-```
-
-<ECharts config={radarConfig} height=450 />
+}} height={450} />
