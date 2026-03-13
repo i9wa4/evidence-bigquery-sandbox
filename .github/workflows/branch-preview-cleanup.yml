@@ -1,0 +1,40 @@
+name: Branch Preview Cleanup
+run-name: delete ${{ github.event.ref }} by @${{ github.actor }}
+
+on:
+  delete:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  cleanup:
+    # Only run for branch deletions, not tag deletions
+    if: github.event.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out gh-pages branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: gh-pages
+          persist-credentials: true
+
+      - name: Remove branch preview directory
+        run: |
+          SAFE_BRANCH=$(echo "${{ github.event.ref }}" | sed 's/[^a-zA-Z0-9_-]/-/g')
+          if [ -d "branch/$SAFE_BRANCH" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git rm -rf "branch/$SAFE_BRANCH"
+            git commit -m "chore: remove preview for deleted branch ${{ github.event.ref }}"
+            git push
+          else
+            echo "No preview directory found for branch/$SAFE_BRANCH — nothing to clean up."
+          fi
