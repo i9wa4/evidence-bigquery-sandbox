@@ -18,12 +18,17 @@ defaults:
   run:
     shell: bash
 
+env:
+  ALLOWED_ACTORS: '["i9wa4", "copilot-swe-agent[bot]"]'
+
 jobs:
   approve:
     runs-on: ubuntu-latest
     steps:
       - name: Approve specific workflow run (workflow_run trigger)
-        if: github.event_name == 'workflow_run'
+        if: |
+          github.event_name == 'workflow_run' &&
+          contains(fromJSON(env.ALLOWED_ACTORS), github.event.workflow_run.actor.login)
         run: gh api --method POST "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/approve" || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -31,11 +36,16 @@ jobs:
       - name: Approve all pending workflow runs (schedule trigger)
         if: github.event_name == 'schedule'
         run: |
+          ALLOWED='${{ env.ALLOWED_ACTORS }}'
           gh api "repos/${{ github.repository }}/actions/runs?status=action_required&per_page=100" \
-            --jq '.workflow_runs[].id' \
-          | while IFS= read -r run_id; do
-            echo "Approving run $run_id"
-            gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/approve" || true
+            --jq '.workflow_runs[] | [.id, .actor.login] | @tsv' \
+          | while IFS=$'\t' read -r run_id actor; do
+            if echo "$ALLOWED" | jq -e --arg a "$actor" 'contains([$a])' > /dev/null 2>&1; then
+              echo "Approving run $run_id (actor: $actor)"
+              gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/approve" || true
+            else
+              echo "Skipping run $run_id (actor: $actor is not in allowed list)"
+            fi
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
