@@ -4,6 +4,7 @@ run-name: ${{ github.event_name }} on ${{ github.ref_name }} by @${{ github.acto
 on:
   push:
     branches-ignore: [main]
+  workflow_dispatch:
 
 permissions: {}
 

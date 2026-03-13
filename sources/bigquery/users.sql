@@ -3,6 +3,8 @@ SELECT
   email,
   country,
   age,
-  gender
+  gender,
+  latitude,
+  longitude
 FROM `bigquery-public-data.thelook_ecommerce.users`
 LIMIT 50000
