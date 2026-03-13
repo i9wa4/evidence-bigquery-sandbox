@@ -1,1 +1,0 @@
-[{"name":"id","evidenceType":"number","typeFidelity":"precise"},{"name":"email","evidenceType":"string","typeFidelity":"precise"},{"name":"country","evidenceType":"string","typeFidelity":"precise"},{"name":"age","evidenceType":"number","typeFidelity":"precise"},{"name":"gender","evidenceType":"string","typeFidelity":"precise"}]
