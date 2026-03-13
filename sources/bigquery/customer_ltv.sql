@@ -29,8 +29,11 @@ WITH
   rfm_scored AS (
     SELECT
       *,
-      -- Recency: fewer days since last order = higher score (inverted)
+      -- Recency: recent purchasers score highest.
+      -- NTILE(5) ASC assigns 1 to the lowest recency_days (most recent).
+      -- (6 - x) inverts the quintile so recent→5, lapsed→1. Range: 1-5.
       6 - NTILE(5) OVER (ORDER BY recency_days ASC) AS r_score,
+      -- Frequency and Monetary: higher values map to higher quintiles (1-5).
       NTILE(5) OVER (ORDER BY order_count ASC) AS f_score,
       NTILE(5) OVER (ORDER BY total_revenue ASC) AS m_score
     FROM customer_metrics

@@ -197,8 +197,10 @@ Each rectangle is sized by customer count; tooltip shows average LTV per segment
 <ECharts config={{
   tooltip: {
     trigger: 'item',
-    formatter: function(params) {
-      return '<b>' + params.name + '</b><br/>Customers: ' + params.value.toLocaleString() + '<br/>Avg LTV: $' + (params.data.avg_ltv || 0).toFixed(2) + '<br/>Total Revenue: $' + ((params.data.total_revenue || 0) / 1000).toFixed(0) + 'k';
+    formatter: (params) => {
+      const ltv = (params.data.avg_ltv || 0).toFixed(2);
+      const rev = ((params.data.total_revenue || 0) / 1000).toFixed(0);
+      return `<b>${params.name}</b><br/>Customers: ${params.value.toLocaleString()}<br/>Avg LTV: $${ltv}<br/>Total Revenue: $${rev}k`;
     }
   },
   series: [
@@ -208,17 +210,15 @@ Each rectangle is sized by customer count; tooltip shows average LTV per segment
       leafDepth: 1,
       label: {
         show: true,
-        formatter: function(params) {
-          return params.name + '\n' + params.value.toLocaleString();
-        },
+        formatter: (params) => `${params.name}\n${params.value.toLocaleString()}`,
         fontSize: 12,
         fontWeight: 'bold',
         color: '#fff'
       },
       upperLabel: { show: false },
       itemStyle: { borderWidth: 2, borderColor: '#fff' },
-      data: segment_summary.map(function(d) {
-        var colorMap = {
+      data: segment_summary.map((d) => {
+        const colorMap = {
           'Champions': '#16a34a',
           'Loyal Customers': '#2563eb',
           'Potential Loyalists': '#7c3aed',
