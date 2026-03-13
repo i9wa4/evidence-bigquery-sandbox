@@ -78,18 +78,14 @@ ORDER BY customers DESC
 
 ## Age Distribution
 
-```sql age_distribution
-SELECT
-  u.age,
-  COUNT(*) AS customers
-FROM users u
-WHERE u.age IS NOT NULL AND u.age BETWEEN 13 AND 80
-GROUP BY u.age
-ORDER BY u.age
+```sql age_raw
+SELECT age
+FROM users
+WHERE age IS NOT NULL AND age BETWEEN 13 AND 80
 ```
 
 <Histogram
-  data={age_distribution}
+  data={age_raw}
   x="age"
   title="Customer Age Distribution"
 />
@@ -134,7 +130,7 @@ ORDER BY month
   data={monthly_new_customers}
   x="month"
   y="new_buyers"
-  title="Monthly Buyers Acquiring Orders"
+  title="Monthly Active Buyers"
 />
 
 ## Revenue by Country

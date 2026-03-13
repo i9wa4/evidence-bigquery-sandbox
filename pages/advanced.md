@@ -80,7 +80,6 @@ SELECT DISTINCT category FROM products ORDER BY category
   data={all_categories}
   value="category"
   title="Select Category"
-  defaultValue="Jeans"
 />
 
 ```sql category_products
@@ -97,6 +96,7 @@ FROM products p
 JOIN order_items oi ON p.id = oi.product_id
 WHERE oi.status NOT IN ('Cancelled', 'Returned')
   AND p.category = '${inputs.selected_category}'
+  AND p.retail_price > 0
 GROUP BY p.id, p.name, p.brand, p.retail_price, p.cost
 ORDER BY revenue DESC
 LIMIT 30
