@@ -1,7 +1,9 @@
 name: Auto-approve Workflow Runs
-run-name: auto-approve ${{ github.event.workflow_run.name }} #${{ github.event.workflow_run.run_number }} by @${{ github.event.workflow_run.actor.login }}
+run-name: auto-approve workflow runs
 
 on:
+  schedule:
+    - cron: '*/10 * * * *'
   workflow_run:
     workflows:
       - CI
@@ -20,7 +22,20 @@ jobs:
   approve:
     runs-on: ubuntu-latest
     steps:
-      - name: Approve workflow run
-        run: gh api --method POST "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/approve"
+      - name: Approve specific workflow run (workflow_run trigger)
+        if: github.event_name == 'workflow_run'
+        run: gh api --method POST "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/approve" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve all pending workflow runs (schedule trigger)
+        if: github.event_name == 'schedule'
+        run: |
+          gh api "repos/${{ github.repository }}/actions/runs?status=action_required&per_page=100" \
+            --jq '.workflow_runs[].id' \
+          | while IFS= read -r run_id; do
+            echo "Approving run $run_id"
+            gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/approve" || true
+          done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
