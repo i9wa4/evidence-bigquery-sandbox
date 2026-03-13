@@ -1,6 +1,6 @@
 # 📊 Distribution & Hierarchy Analysis
 
-Statistical distribution and hierarchical revenue breakdown using **BoxPlot**, **TreeMap**, callout components (**Note**, **Alert**), and collapsible **Details** sections.
+Statistical distribution and flow analysis using **BoxPlot**, **SankeyDiagram**, callout components (**Note**, **Alert**), and collapsible **Details** sections.
 
 <Note>
 This dashboard uses DuckDB percentile functions to compute price distribution statistics from the TheLook e-commerce dataset.
@@ -32,10 +32,10 @@ ORDER BY median DESC
   data={price_distribution}
   name="category"
   midpoint="median"
-  confidenceLow="q1"
-  confidenceHigh="q3"
-  whiskerLow="p10"
-  whiskerHigh="p90"
+  intervalBottom="q1"
+  intervalTop="q3"
+  min="p10"
+  max="p90"
   title="Retail Price Distribution by Category (P10–P90)"
   swapXY=true
 />
@@ -48,32 +48,33 @@ Wider boxes indicate greater price variation within a category.
 
 </Details>
 
-## Revenue Hierarchy — TreeMap
+## Revenue Flow — SankeyDiagram
 
-```sql category_brand_revenue
+```sql category_brand_sankey
 SELECT
-  p.category || ' › ' || p.brand AS label,
-  p.category,
-  ROUND(SUM(oi.sale_price), 2) AS revenue
+  p.category AS source,
+  p.brand AS target,
+  ROUND(SUM(oi.sale_price), 2) AS value
 FROM order_items oi
 JOIN products p ON oi.product_id = p.id
 WHERE oi.status NOT IN ('Cancelled', 'Returned')
 GROUP BY p.category, p.brand
-ORDER BY revenue DESC
-LIMIT 60
+ORDER BY value DESC
+LIMIT 40
 ```
 
-<TreeMap
-  data={category_brand_revenue}
-  name="label"
-  value="revenue"
-  title="Revenue by Category › Brand (Top 60)"
+<SankeyDiagram
+  data={category_brand_sankey}
+  sourceCol="source"
+  targetCol="target"
+  valueCol="value"
+  title="Revenue Flow: Category → Brand (Top 40)"
 />
 
-<Details title="TreeMap interpretation">
+<Details title="SankeyDiagram interpretation">
 
-Each rectangle represents a brand within a category. **Area is proportional to revenue**.
-Larger rectangles are higher-revenue brands. The label format is `Category › Brand`.
+Each flow represents revenue moving from a **product category** (left) to a **brand** (right).
+Thicker flows indicate higher revenue. Only the top 40 category–brand pairs are shown.
 
 </Details>
 
@@ -121,10 +122,10 @@ ORDER BY median DESC
   data={sale_price_dist}
   name="category"
   midpoint="median"
-  confidenceLow="q1"
-  confidenceHigh="q3"
-  whiskerLow="p10"
-  whiskerHigh="p90"
+  intervalBottom="q1"
+  intervalTop="q3"
+  min="p10"
+  max="p90"
   title="Actual Sale Price Distribution by Category (P10–P90)"
   swapXY=true
 />
