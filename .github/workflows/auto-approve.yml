@@ -1,15 +1,29 @@
 name: Auto-approve Workflow Runs
 run-name: auto-approve workflow runs
 
+# Runs every 10 minutes and approves pending workflow runs from allowed actors.
+#
+# The workflow_run trigger is intentionally omitted: when a run triggered by
+# a restricted actor requires approval, the workflow_run event itself also
+# becomes subject to the same approval gate, creating a circular dependency.
+# The schedule trigger runs from the default branch and is not affected.
+#
+# NOTE: The GitHub approve API ( POST /actions/runs/{id}/approve ) only works
+# for pull-request workflows from public-fork first-time contributors.  For
+# push-triggered runs that are blocked due to the repository's "Fork pull
+# request workflows from outside collaborators" setting, the only permanent
+# fix is a settings change:
+#
+#   Repository Settings → Actions → General
+#   → "Fork pull request workflows from outside collaborators"
+#   → "Require approval for first-time contributors who are new to GitHub"
+#
+# Once that setting is applied, this workflow acts as a safety net for the
+# rare cases where the approve API does apply (e.g. a genuine fork PR).
+
 on:
   schedule:
     - cron: '*/10 * * * *'
-  workflow_run:
-    workflows:
-      - CI
-      - Branch Preview
-    types:
-      - requested
 
 permissions:
   actions: write
@@ -18,33 +32,30 @@ defaults:
   run:
     shell: bash
 
+# Both "Copilot" (API actor.login) and "copilot-swe-agent[bot]" (git author)
+# refer to the same GitHub App.  Include both to be safe.
 env:
-  ALLOWED_ACTORS: '["i9wa4", "copilot-swe-agent[bot]"]'
+  ALLOWED_ACTORS: '["i9wa4", "Copilot", "copilot-swe-agent[bot]"]'
 
 jobs:
   approve:
     runs-on: ubuntu-latest
     steps:
-      - name: Approve specific workflow run (workflow_run trigger)
-        if: |
-          github.event_name == 'workflow_run' &&
-          contains(fromJSON(env.ALLOWED_ACTORS), github.event.workflow_run.actor.login)
-        run: gh api --method POST "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/approve" || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Approve all pending workflow runs (schedule trigger)
-        if: github.event_name == 'schedule'
+      - name: Approve pending workflow runs from allowed actors
         run: |
           ALLOWED='${{ env.ALLOWED_ACTORS }}'
           gh api "repos/${{ github.repository }}/actions/runs?status=action_required&per_page=100" \
             --jq '.workflow_runs[] | [.id, .actor.login] | @tsv' \
           | while IFS=$'\t' read -r run_id actor; do
             if echo "$ALLOWED" | jq -e --arg a "$actor" 'contains([$a])' > /dev/null 2>&1; then
-              echo "Approving run $run_id (actor: $actor)"
-              gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/approve" || true
+              echo "Attempting to approve run $run_id (actor: $actor)"
+              if gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/approve" 2>&1; then
+                echo "✅ Approved run $run_id"
+              else
+                echo "⚠️  Could not approve run $run_id — the run may not be in an approvable state (this is expected for push-triggered runs; see workflow comments)"
+              fi
             else
-              echo "Skipping run $run_id (actor: $actor is not in allowed list)"
+              echo "Skipping run $run_id (actor: $actor is not in the allowed list)"
             fi
           done
         env:
