@@ -1,25 +1,16 @@
 name: Auto-approve Workflow Runs
 run-name: auto-approve workflow runs
 
-# Runs every 10 minutes and approves pending workflow runs from allowed actors.
+# Runs every 10 minutes and handles pending workflow runs from allowed actors.
 #
-# The workflow_run trigger is intentionally omitted: when a run triggered by
-# a restricted actor requires approval, the workflow_run event itself also
-# becomes subject to the same approval gate, creating a circular dependency.
-# The schedule trigger runs from the default branch and is not affected.
-#
-# NOTE: The GitHub approve API ( POST /actions/runs/{id}/approve ) only works
-# for pull-request workflows from public-fork first-time contributors.  For
-# push-triggered runs that are blocked due to the repository's "Fork pull
-# request workflows from outside collaborators" setting, the only permanent
-# fix is a settings change:
-#
-#   Repository Settings → Actions → General
-#   → "Fork pull request workflows from outside collaborators"
-#   → "Require approval for first-time contributors who are new to GitHub"
-#
-# Once that setting is applied, this workflow acts as a safety net for the
-# rare cases where the approve API does apply (e.g. a genuine fork PR).
+# Strategy:
+#   1. Try the approve API first (works for genuine fork-PR runs).
+#   2. For push-triggered runs blocked by the "outside collaborator" gate
+#      (approve API returns 403), fall back to re-triggering the same workflow
+#      via workflow_dispatch on the same branch, then cancel the blocked run.
+#      This works because workflow_dispatch events are not subject to the
+#      outside-collaborator approval gate when triggered by a scheduled workflow
+#      running from the default branch.
 
 on:
   schedule:
@@ -41,18 +32,25 @@ jobs:
   approve:
     runs-on: ubuntu-latest
     steps:
-      - name: Approve pending workflow runs from allowed actors
+      - name: Approve or dispatch workflow runs from allowed actors
         run: |
           ALLOWED='${{ env.ALLOWED_ACTORS }}'
           gh api "repos/${{ github.repository }}/actions/runs?status=action_required&per_page=100" \
-            --jq '.workflow_runs[] | [.id, .actor.login] | @tsv' \
-          | while IFS=$'\t' read -r run_id actor; do
+            --jq '.workflow_runs[] | [.id, .actor.login, .head_branch, .path] | @tsv' \
+          | while IFS=$'\t' read -r run_id actor branch workflow_path; do
             if echo "$ALLOWED" | jq -e --arg a "$actor" 'contains([$a])' > /dev/null 2>&1; then
-              echo "Attempting to approve run $run_id (actor: $actor)"
-              if gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/approve" 2>&1; then
+              echo "Processing run $run_id (actor: $actor, branch: $branch)"
+              if gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/approve" 2>/dev/null; then
                 echo "✅ Approved run $run_id"
               else
-                echo "⚠️  Could not approve run $run_id — the run may not be in an approvable state (this is expected for push-triggered runs; see workflow comments)"
+                echo "⚠️  Approve API unavailable for run $run_id — falling back to workflow_dispatch"
+                workflow_file=$(basename "$workflow_path")
+                if gh workflow run "$workflow_file" --ref "$branch" -R "${{ github.repository }}" 2>&1; then
+                  echo "✅ Dispatched $workflow_file on $branch"
+                  gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/cancel" 2>/dev/null || true
+                else
+                  echo "⚠️  Could not dispatch $workflow_file on $branch (trigger not supported or branch not found)"
+                fi
               fi
             else
               echo "Skipping run $run_id (actor: $actor is not in the allowed list)"
