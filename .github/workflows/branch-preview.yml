@@ -1,10 +1,9 @@
-name: Deploy Evidence Dashboard
+name: Branch Preview
 run-name: ${{ github.event_name }} on ${{ github.ref_name }} by @${{ github.actor }}
 
 on:
   push:
-    branches: main
-  workflow_dispatch:
+    branches-ignore: [main]
 
 permissions: {}
 
@@ -17,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  preview:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -43,6 +42,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Set branch-specific base path
+        run: |
+          SAFE_BRANCH=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9_-]/-/g')
+          echo "SAFE_BRANCH=$SAFE_BRANCH" >> "$GITHUB_ENV"
+          sed -i "s|basePath:.*|basePath: /${{ github.event.repository.name }}/branch/$SAFE_BRANCH|" evidence.config.yaml
+
       - name: Fetch data sources (BigQuery)
         run: npm run sources
         env:
@@ -51,9 +56,16 @@ jobs:
       - name: Build static site
         run: npm run build
 
-      - name: Deploy to GitHub Pages
+      - name: Deploy branch preview to GitHub Pages
         uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./build
           publish_branch: gh-pages
+          destination_dir: branch/${{ env.SAFE_BRANCH }}
+
+      - name: Output preview URL
+        run: |
+          echo "## 🔍 Branch Preview" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Preview URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/branch/${{ env.SAFE_BRANCH }}/" >> "$GITHUB_STEP_SUMMARY"
