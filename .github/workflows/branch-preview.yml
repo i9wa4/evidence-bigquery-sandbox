@@ -67,6 +67,8 @@ jobs:
 
       - name: Output preview URL
         run: |
-          echo "## 🔍 Branch Preview" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Preview URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/branch/${{ env.SAFE_BRANCH }}/" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Branch Preview"
+            echo ""
+            echo "Preview URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/branch/${{ env.SAFE_BRANCH }}/"
+          } >> "$GITHUB_STEP_SUMMARY"
