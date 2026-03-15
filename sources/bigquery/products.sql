@@ -1,8 +1,2 @@
-SELECT
-  id,
-  name,
-  category,
-  brand,
-  cost,
-  retail_price
-FROM `bigquery-public-data.thelook_ecommerce.products`
+select id, name, category, brand, cost, retail_price
+from `bigquery-public-data.thelook_ecommerce.products`
