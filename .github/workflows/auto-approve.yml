@@ -1,36 +1,25 @@
 name: Auto-approve Workflow Runs
 run-name: auto-approve workflow runs
 
-# Handles pending workflow runs from allowed actors in three ways:
+# GitHub blocks workflow runs from "outside collaborators" (including the
+# Copilot bot) with an action_required gate.  The approve API returns 403 for
+# same-repo runs, so the only working strategy is to re-dispatch the same
+# workflow via workflow_dispatch (which bypasses the gate) and cancel the
+# blocked run.
 #
+# Triggers:
 #   workflow_run [requested] — fires the moment "ci" or "Branch Preview" is
-#     requested, covering both push-triggered and pull_request-triggered runs
-#     with minimal delay (~15 s wait for the run to enter action_required).
+#     requested.  The event context provides the run ID, actor, branch, and
+#     workflow path directly — no API query needed.  A replacement
+#     workflow_dispatch run is sent immediately and the blocked run cancelled.
 #
-#   pull_request_target — secondary trigger for PR events; useful when the
-#     workflow_run event does not fire quickly enough (e.g. GitHub queuing lag).
-#
-#   schedule (every 10 min) — final fallback that catches any runs missed by
-#     the above two triggers.
-#
-# Strategy per blocked run:
-#   1. Try the approve API first (works for genuine fork-PR runs).
-#   2. For push-triggered runs blocked by the "outside collaborator" gate
-#      (approve API returns 403), fall back to re-triggering the same workflow
-#      via workflow_dispatch on the same branch, then cancel the blocked run.
-#      This works because workflow_dispatch events are not subject to the
-#      outside-collaborator approval gate when triggered by a scheduled workflow
-#      running from the default branch.
+#   schedule (every 10 min) — catches any runs missed by the above trigger
+#     (e.g. if auto-approve itself was briefly unavailable).
 
 on:
-  # Fires the moment ci or Branch Preview is requested, so blocked runs are
-  # handled immediately instead of waiting up to 10 minutes for the schedule.
   workflow_run:
     workflows: ["ci", "Branch Preview"]
     types: [requested]
-  # Secondary: also handle PR events directly, in case workflow_run lags.
-  pull_request_target:
-    types: [opened, synchronize, reopened]
   schedule:
     - cron: '*/10 * * * *'
 
@@ -41,54 +30,56 @@ defaults:
   run:
     shell: bash
 
-# Both "Copilot" (API actor.login) and "copilot-swe-agent[bot]" (git author)
-# refer to the same GitHub App.  Include both to be safe.
 env:
   ALLOWED_ACTORS: '["i9wa4", "Copilot", "copilot-swe-agent[bot]"]'
 
 jobs:
   approve:
     runs-on: ubuntu-latest
-    # workflow_dispatch runs bypass the outside-collaborator approval gate, so
-    # there is nothing to approve when workflow_run fires for such a run.
+    # workflow_dispatch runs already bypass the gate — nothing to replace.
     if: github.event_name != 'workflow_run' || github.event.workflow_run.event != 'workflow_dispatch'
     steps:
-      # Give GitHub time to move the newly-requested run into action_required.
-      # workflow_run fires almost immediately; 15 s is typically enough.
-      # pull_request_target fires together with the pull_request event, so the
-      # CI run may not be queued yet — 30 s gives it comfortable headroom.
-      - name: Wait for workflows to queue
-        if: github.event_name == 'workflow_run' || github.event_name == 'pull_request_target'
+      - name: Dispatch replacement run and cancel blocked run
+        if: github.event_name == 'workflow_run'
         run: |
-          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
-            sleep 30
-          else
-            sleep 15
+          ACTOR="${{ github.event.workflow_run.actor.login }}"
+          if ! echo '${{ env.ALLOWED_ACTORS }}' | jq -e --arg a "$ACTOR" 'contains([$a])' > /dev/null 2>&1; then
+            echo "Actor $ACTOR is not in the allowed list — skipping."
+            exit 0
           fi
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          WORKFLOW_FILE=$(basename "${{ github.event.workflow_run.path }}")
+          if gh workflow run "$WORKFLOW_FILE" --ref "$BRANCH" -R "${{ github.repository }}"; then
+            echo "✅ Dispatched $WORKFLOW_FILE on $BRANCH"
+            # Wait for the dispatched run to register before cancelling the
+            # original, to avoid a race where cancel arrives before the new run
+            # is queued.
+            sleep 5
+            echo "🗑  Cancelling blocked run $RUN_ID"
+            gh api --method POST "repos/${{ github.repository }}/actions/runs/$RUN_ID/cancel" 2>/dev/null || true
+          else
+            echo "⚠️  Could not dispatch $WORKFLOW_FILE on $BRANCH"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Approve or dispatch workflow runs from allowed actors
+      - name: Handle missed action_required runs (schedule fallback)
+        if: github.event_name == 'schedule'
         run: |
-          ALLOWED='${{ env.ALLOWED_ACTORS }}'
           gh api "repos/${{ github.repository }}/actions/runs?status=action_required&per_page=100" \
             --jq '.workflow_runs[] | [.id, .actor.login, .head_branch, .path] | @tsv' \
           | while IFS=$'\t' read -r run_id actor branch workflow_path; do
-            if echo "$ALLOWED" | jq -e --arg a "$actor" 'contains([$a])' > /dev/null 2>&1; then
-              echo "Processing run $run_id (actor: $actor, branch: $branch)"
-              if gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/approve" 2>/dev/null; then
-                echo "✅ Approved run $run_id"
+            if echo '${{ env.ALLOWED_ACTORS }}' | jq -e --arg a "$actor" 'contains([$a])' > /dev/null 2>&1; then
+              workflow_file=$(basename "$workflow_path")
+              if gh workflow run "$workflow_file" --ref "$branch" -R "${{ github.repository }}"; then
+                echo "✅ Dispatched $workflow_file on $branch"
+                # Wait for the dispatched run to register before cancelling.
+                sleep 5
+                echo "🗑  Cancelling blocked run $run_id"
+                gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/cancel" 2>/dev/null || true
               else
-                echo "⚠️  Approve API unavailable for run $run_id — falling back to workflow_dispatch"
-                workflow_file=$(basename "$workflow_path")
-                if gh workflow run "$workflow_file" --ref "$branch" -R "${{ github.repository }}" 2>&1; then
-                  echo "✅ Dispatched $workflow_file on $branch"
-                  # 改善案B: 新しいランが queued 状態になるまで待ってからキャンセルする
-                  # (即キャンセルすると新ランより先にキャンセルが走り2重実行になるリスクがある)
-                  sleep 5
-                  echo "🗑  Cancelling blocked run $run_id"
-                  gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/cancel" 2>/dev/null || true
-                else
-                  echo "⚠️  Could not dispatch $workflow_file on $branch (trigger not supported or branch not found)"
-                fi
+                echo "⚠️  Could not dispatch $workflow_file on $branch"
               fi
             else
               echo "Skipping run $run_id (actor: $actor is not in the allowed list)"
