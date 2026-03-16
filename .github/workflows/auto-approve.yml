@@ -27,15 +27,19 @@ jobs:
                github.event.workflow_run.actor.login)
     steps:
       - name: Dispatch replacement and cancel blocked run
+        # Pass all ${{ }} values through env vars to prevent script injection
+        # (branch names or paths could otherwise embed shell metacharacters).
         run: |
-          WORKFLOW_FILE=$(basename "${{ github.event.workflow_run.path }}")
-          BRANCH="${{ github.event.workflow_run.head_branch }}"
-          RUN_ID="${{ github.event.workflow_run.id }}"
-          gh workflow run "$WORKFLOW_FILE" --ref "$BRANCH" -R "${{ github.repository }}"
+          WORKFLOW_FILE=${WF_PATH##*/}
+          gh workflow run "$WORKFLOW_FILE" --ref "$WF_BRANCH" -R "$REPO"
           # Wait for the new run to register before cancelling the blocked run,
           # to avoid a race where cancel arrives before the replacement is queued.
           # 5 s is empirically sufficient for GitHub to enqueue the new run.
           sleep 5
-          gh api --method POST "repos/${{ github.repository }}/actions/runs/$RUN_ID/cancel" 2>/dev/null || true
+          gh api --method POST "repos/$REPO/actions/runs/$WF_RUN_ID/cancel" 2>/dev/null || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WF_PATH: ${{ github.event.workflow_run.path }}
+          WF_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WF_RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
