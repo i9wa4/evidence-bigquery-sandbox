@@ -1,13 +1,17 @@
 name: Auto-approve Workflow Runs
 run-name: auto-approve workflow runs
 
-# Handles pending workflow runs from allowed actors in two ways:
+# Handles pending workflow runs from allowed actors in three ways:
 #
-#   pull_request_target — fires immediately when a PR is opened/updated,
-#     eliminating wait time for pull_request-triggered workflows (e.g. ci.yml).
+#   workflow_run [requested] — fires the moment "ci" or "Branch Preview" is
+#     requested, covering both push-triggered and pull_request-triggered runs
+#     with minimal delay (~15 s wait for the run to enter action_required).
 #
-#   schedule (every 10 min) — fallback for push-triggered workflows
-#     (e.g. branch-preview.yml) that are not covered by pull_request_target.
+#   pull_request_target — secondary trigger for PR events; useful when the
+#     workflow_run event does not fire quickly enough (e.g. GitHub queuing lag).
+#
+#   schedule (every 10 min) — final fallback that catches any runs missed by
+#     the above two triggers.
 #
 # Strategy per blocked run:
 #   1. Try the approve API first (works for genuine fork-PR runs).
@@ -19,7 +23,12 @@ run-name: auto-approve workflow runs
 #      running from the default branch.
 
 on:
-  # 改善案A: PR イベント発生時に即座に処理する（最大10分の待機を解消）
+  # Fires the moment ci or Branch Preview is requested, so blocked runs are
+  # handled immediately instead of waiting up to 10 minutes for the schedule.
+  workflow_run:
+    workflows: ["ci", "Branch Preview"]
+    types: [requested]
+  # Secondary: also handle PR events directly, in case workflow_run lags.
   pull_request_target:
     types: [opened, synchronize, reopened]
   schedule:
@@ -40,12 +49,22 @@ env:
 jobs:
   approve:
     runs-on: ubuntu-latest
+    # workflow_dispatch runs bypass the outside-collaborator approval gate, so
+    # there is nothing to approve when workflow_run fires for such a run.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event != 'workflow_dispatch'
     steps:
-      # 改善案A: pull_request_target で起動した場合、対象ワークフランが
-      # action_required キューに入るまで少し待つ
+      # Give GitHub time to move the newly-requested run into action_required.
+      # workflow_run fires almost immediately; 15 s is typically enough.
+      # pull_request_target fires together with the pull_request event, so the
+      # CI run may not be queued yet — 30 s gives it comfortable headroom.
       - name: Wait for workflows to queue
-        if: github.event_name == 'pull_request_target'
-        run: sleep 10
+        if: github.event_name == 'workflow_run' || github.event_name == 'pull_request_target'
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            sleep 30
+          else
+            sleep 15
+          fi
 
       - name: Approve or dispatch workflow runs from allowed actors
         run: |
@@ -65,8 +84,8 @@ jobs:
                   # 改善案B: 新しいランが queued 状態になるまで待ってからキャンセルする
                   # (即キャンセルすると新ランより先にキャンセルが走り2重実行になるリスクがある)
                   sleep 5
+                  echo "🗑  Cancelling blocked run $run_id"
                   gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/cancel" 2>/dev/null || true
-                  echo "🗑  Cancelled blocked run $run_id"
                 else
                   echo "⚠️  Could not dispatch $workflow_file on $branch (trigger not supported or branch not found)"
                 fi
