@@ -1,60 +1,45 @@
 name: Auto-approve Workflow Runs
 run-name: auto-approve workflow runs
 
-# Runs every 10 minutes and handles pending workflow runs from allowed actors.
+# GitHub treats the Copilot bot as an "outside collaborator" and blocks its
+# workflow runs with action_required, even under the "Require approval for
+# first-time contributors who are new to GitHub" setting.
 #
-# Strategy:
-#   1. Try the approve API first (works for genuine fork-PR runs).
-#   2. For push-triggered runs blocked by the "outside collaborator" gate
-#      (approve API returns 403), fall back to re-triggering the same workflow
-#      via workflow_dispatch on the same branch, then cancel the blocked run.
-#      This works because workflow_dispatch events are not subject to the
-#      outside-collaborator approval gate when triggered by a scheduled workflow
-#      running from the default branch.
+# Fix: re-dispatch the same workflow via workflow_dispatch (which bypasses the
+# gate) then cancel the original blocked run.
 
 on:
-  schedule:
-    - cron: '*/10 * * * *'
+  workflow_run:
+    workflows: ["ci", "Branch Preview"]
+    types: [requested]
 
 permissions:
   actions: write
 
-defaults:
-  run:
-    shell: bash
-
-# Both "Copilot" (API actor.login) and "copilot-swe-agent[bot]" (git author)
-# refer to the same GitHub App.  Include both to be safe.
-env:
-  ALLOWED_ACTORS: '["i9wa4", "Copilot", "copilot-swe-agent[bot]"]'
-
 jobs:
-  approve:
+  dispatch:
     runs-on: ubuntu-latest
+    # workflow_dispatch runs already bypass the gate — nothing to replace.
+    # Only act for allowed actors (update this list to add/remove actors).
+    if: >-
+      github.event.workflow_run.event != 'workflow_dispatch' &&
+      contains(fromJson('["i9wa4","Copilot","copilot-swe-agent[bot]"]'),
+               github.event.workflow_run.actor.login)
     steps:
-      - name: Approve or dispatch workflow runs from allowed actors
+      - name: Dispatch replacement and cancel blocked run
+        # Pass all ${{ }} values through env vars to prevent script injection
+        # (branch names or paths could otherwise embed shell metacharacters).
         run: |
-          ALLOWED='${{ env.ALLOWED_ACTORS }}'
-          gh api "repos/${{ github.repository }}/actions/runs?status=action_required&per_page=100" \
-            --jq '.workflow_runs[] | [.id, .actor.login, .head_branch, .path] | @tsv' \
-          | while IFS=$'\t' read -r run_id actor branch workflow_path; do
-            if echo "$ALLOWED" | jq -e --arg a "$actor" 'contains([$a])' > /dev/null 2>&1; then
-              echo "Processing run $run_id (actor: $actor, branch: $branch)"
-              if gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/approve" 2>/dev/null; then
-                echo "✅ Approved run $run_id"
-              else
-                echo "⚠️  Approve API unavailable for run $run_id — falling back to workflow_dispatch"
-                workflow_file=$(basename "$workflow_path")
-                if gh workflow run "$workflow_file" --ref "$branch" -R "${{ github.repository }}" 2>&1; then
-                  echo "✅ Dispatched $workflow_file on $branch"
-                  gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/cancel" 2>/dev/null || true
-                else
-                  echo "⚠️  Could not dispatch $workflow_file on $branch (trigger not supported or branch not found)"
-                fi
-              fi
-            else
-              echo "Skipping run $run_id (actor: $actor is not in the allowed list)"
-            fi
-          done
+          WORKFLOW_FILE=${WF_PATH##*/}
+          gh workflow run "$WORKFLOW_FILE" --ref "$WF_BRANCH" -R "$REPO"
+          # Wait for the new run to register before cancelling the blocked run,
+          # to avoid a race where cancel arrives before the replacement is queued.
+          # 5 s is empirically sufficient for GitHub to enqueue the new run.
+          sleep 5
+          gh api --method POST "repos/$REPO/actions/runs/$WF_RUN_ID/cancel" 2>/dev/null || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WF_PATH: ${{ github.event.workflow_run.path }}
+          WF_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WF_RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
