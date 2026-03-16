@@ -7,10 +7,14 @@ select
     p.category,
     p.brand,
     case
-        when p.retail_price < 25 then '1_Under $25'
-        when p.retail_price < 50 then '2_$25-$49'
-        when p.retail_price < 100 then '3_$50-$99'
-        when p.retail_price < 200 then '4_$100-$199'
+        when p.retail_price < 25
+        then '1_Under $25'
+        when p.retail_price < 50
+        then '2_$25-$49'
+        when p.retail_price < 100
+        then '3_$50-$99'
+        when p.retail_price < 200
+        then '4_$100-$199'
         else '5_$200 Plus'
     end as price_tier,
     format_date('%Y-%m', date(oi.created_at)) as order_month,
@@ -35,7 +39,6 @@ where
     p.retail_price > 0
     and p.cost > 0
     and p.cost < p.retail_price
-    and oi.created_at
-    >= timestamp(date_sub(current_date(), interval 13 month))
+    and oi.created_at >= timestamp(date_sub(current_date(), interval 13 month))
 group by 1, 2, 3, 4, 5
 order by 1, 4
