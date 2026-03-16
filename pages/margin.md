@@ -4,7 +4,7 @@ Profitability analysis going beyond revenue: **gross margin**, **discount depth*
 
 <Note>
 All monetary amounts are computed from the `price_intelligence` source, which pre-aggregates
-item-level data from BigQuery. Only items where `cost < retail_price` are included to exclude
+item-level data from BigQuery. Only items where `cost &lt; retail_price` are included to exclude
 catalogue data anomalies. Cancelled and Returned items are excluded from profit metrics but
 included in the return-rate section below.
 </Note>
@@ -206,7 +206,7 @@ ORDER BY price_tier, category
 
 | Tier | Retail Price Range |
 |---|---|
-| 1_Under $25 | < $25 |
+| 1_Under $25 | &lt; $25 |
 | 2_$25-$49 | $25 – $49 |
 | 3_$50-$99 | $50 – $99 |
 | 4_$100-$199 | $100 – $199 |
