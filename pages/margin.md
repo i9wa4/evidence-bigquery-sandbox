@@ -206,7 +206,7 @@ ORDER BY price_tier, category
 
 | Tier | Retail Price Range |
 |---|---|
-| 1_Under $25 | &lt; $25 |
+| 1_Under $25 | Under $25 |
 | 2_$25-$49 | $25 – $49 |
 | 3_$50-$99 | $50 – $99 |
 | 4_$100-$199 | $100 – $199 |
