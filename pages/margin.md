@@ -31,8 +31,8 @@ WHERE status NOT IN ('Cancelled', 'Returned')
 <BigValue data={margin_kpis} value="net_revenue"      title="Net Revenue"         fmt="$#,##0" />
 <BigValue data={margin_kpis} value="total_cogs"       title="Cost of Goods Sold"  fmt="$#,##0" />
 <BigValue data={margin_kpis} value="gross_profit"     title="Gross Profit"        fmt="$#,##0" />
-<BigValue data={margin_kpis} value="avg_discount_rate" title="Avg Discount Rate"  fmt="#,##0.0%" />
-<BigValue data={margin_kpis} value="gp_margin_pct"    title="GP Margin %"         fmt="#,##0.0%" />
+<BigValue data={margin_kpis} value="avg_discount_rate" title="Avg Discount Rate %"  fmt="#,##0.0" />
+<BigValue data={margin_kpis} value="gp_margin_pct"    title="GP Margin %"          fmt="#,##0.0" />
 
 ---
 
@@ -262,7 +262,7 @@ Watch for months where these two lines diverge significantly.
 
 ## Return Rate Impact by Category
 
-Returns and cancellations destroy realised revenue. Which categories are most exposed?
+Returns and cancellations destroy realized revenue. Which categories are most exposed?
 
 ```sql return_impact
 SELECT
