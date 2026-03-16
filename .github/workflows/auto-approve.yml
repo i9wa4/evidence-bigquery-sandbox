@@ -1,9 +1,15 @@
 name: Auto-approve Workflow Runs
 run-name: auto-approve workflow runs
 
-# Runs every 10 minutes and handles pending workflow runs from allowed actors.
+# Handles pending workflow runs from allowed actors in two ways:
 #
-# Strategy:
+#   pull_request_target — fires immediately when a PR is opened/updated,
+#     eliminating wait time for pull_request-triggered workflows (e.g. ci.yml).
+#
+#   schedule (every 10 min) — fallback for push-triggered workflows
+#     (e.g. branch-preview.yml) that are not covered by pull_request_target.
+#
+# Strategy per blocked run:
 #   1. Try the approve API first (works for genuine fork-PR runs).
 #   2. For push-triggered runs blocked by the "outside collaborator" gate
 #      (approve API returns 403), fall back to re-triggering the same workflow
@@ -13,6 +19,9 @@ run-name: auto-approve workflow runs
 #      running from the default branch.
 
 on:
+  # 改善案A: PR イベント発生時に即座に処理する（最大10分の待機を解消）
+  pull_request_target:
+    types: [opened, synchronize, reopened]
   schedule:
     - cron: '*/10 * * * *'
 
@@ -32,6 +41,12 @@ jobs:
   approve:
     runs-on: ubuntu-latest
     steps:
+      # 改善案A: pull_request_target で起動した場合、対象ワークフランが
+      # action_required キューに入るまで少し待つ
+      - name: Wait for workflows to queue
+        if: github.event_name == 'pull_request_target'
+        run: sleep 10
+
       - name: Approve or dispatch workflow runs from allowed actors
         run: |
           ALLOWED='${{ env.ALLOWED_ACTORS }}'
@@ -47,7 +62,11 @@ jobs:
                 workflow_file=$(basename "$workflow_path")
                 if gh workflow run "$workflow_file" --ref "$branch" -R "${{ github.repository }}" 2>&1; then
                   echo "✅ Dispatched $workflow_file on $branch"
+                  # 改善案B: 新しいランが queued 状態になるまで待ってからキャンセルする
+                  # (即キャンセルすると新ランより先にキャンセルが走り2重実行になるリスクがある)
+                  sleep 5
                   gh api --method POST "repos/${{ github.repository }}/actions/runs/$run_id/cancel" 2>/dev/null || true
+                  echo "🗑  Cancelled blocked run $run_id"
                 else
                   echo "⚠️  Could not dispatch $workflow_file on $branch (trigger not supported or branch not found)"
                 fi
