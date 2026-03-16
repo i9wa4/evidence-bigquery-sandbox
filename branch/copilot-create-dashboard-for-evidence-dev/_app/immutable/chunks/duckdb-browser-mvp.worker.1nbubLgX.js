@@ -1,0 +1,1 @@
+function r(e){return new Worker("/evidence-bigquery-sandbox/branch/copilot-create-dashboard-for-evidence-dev/_app/immutable/workers/duckdb-browser-mvp.worker-Cz10_53p.js",{name:e==null?void 0:e.name})}export{r as default};
