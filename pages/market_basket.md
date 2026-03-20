@@ -203,8 +203,7 @@ Highest absolute co-purchase counts — useful for sizing the cross-sell opportu
 
 ```sql top_pairs_volume
 SELECT
-  category_a,
-  category_b,
+  category_a || ' × ' || category_b AS category_pair,
   co_orders,
   support_pct,
   lift
@@ -215,7 +214,7 @@ LIMIT 20
 
 <BarChart
   data={top_pairs_volume}
-  x={["category_a", "category_b"]}
+  x="category_pair"
   y="co_orders"
   title="Top 20 Category Pairs by Co-Purchase Volume"
   xAxisTitle="Category Pair"
@@ -282,6 +281,7 @@ SELECT
   month,
   COUNT(*) AS total_orders,
   SUM(CASE WHEN cat_count > 1 THEN 1 ELSE 0 END) AS multi_cat_orders,
+  COUNT(*) - SUM(CASE WHEN cat_count > 1 THEN 1 ELSE 0 END) AS single_cat_orders,
   ROUND(
     SUM(CASE WHEN cat_count > 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1
   ) AS pct_multi_category,
@@ -313,7 +313,7 @@ ORDER BY month
 <AreaChart
   data={monthly_multi_cat}
   x="month"
-  y={["multi_cat_orders", "total_orders"]}
-  title="Multi-Category vs Single-Category Orders (Monthly)"
+  y={["single_cat_orders", "multi_cat_orders"]}
+  title="Single-Category vs Multi-Category Orders (Monthly, Stacked)"
   type="stacked"
 />
