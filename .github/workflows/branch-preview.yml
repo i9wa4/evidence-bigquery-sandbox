@@ -46,10 +46,13 @@ jobs:
         run: npm ci
 
       - name: Set branch-specific base path
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
-          SAFE_BRANCH=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9_-]/-/g')
+          SAFE_BRANCH=$(printf '%s' "$REF_NAME" | sed 's/[^a-zA-Z0-9_-]/-/g')
           echo "SAFE_BRANCH=$SAFE_BRANCH" >> "$GITHUB_ENV"
-          sed -i "s|basePath:.*|basePath: /${{ github.event.repository.name }}/branch/$SAFE_BRANCH|" evidence.config.yaml
+          sed -i "s|basePath:.*|basePath: /$REPO_NAME/branch/$SAFE_BRANCH|" evidence.config.yaml
 
       - name: Fetch data sources (BigQuery)
         run: npm run sources
@@ -68,9 +71,12 @@ jobs:
           destination_dir: branch/${{ env.SAFE_BRANCH }}
 
       - name: Output preview URL
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           {
             echo "## Branch Preview"
             echo ""
-            echo "Preview URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/branch/${{ env.SAFE_BRANCH }}/"
+            echo "Preview URL: https://$REPO_OWNER.github.io/$REPO_NAME/branch/$SAFE_BRANCH/"
           } >> "$GITHUB_STEP_SUMMARY"
