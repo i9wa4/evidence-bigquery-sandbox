@@ -5,41 +5,71 @@ run-name: auto-approve workflow runs
 # workflow runs with action_required, even under the "Require approval for
 # first-time contributors who are new to GitHub" setting.
 #
-# Fix: re-dispatch the same workflow via workflow_dispatch (which bypasses the
-# gate) then cancel the original blocked run.
+# Workaround: every 10 minutes, query the API for action_required runs from
+# allowlisted actors, re-dispatch each via workflow_dispatch (which bypasses
+# the gate), then cancel the original blocked run.
+#
+# schedule: is used instead of workflow_run: because schedule triggers are
+# always approved by GitHub. A workflow_run trigger from a restricted actor
+# may itself be blocked by the approval gate, making the fix self-defeating.
+#
+# VERIFY: after deploying, create a test Copilot PR and confirm that the
+# action_required run is re-dispatched within 10 minutes.
 
 on:
-  workflow_run:
-    workflows: ["ci", "Branch Preview"]
-    types: [requested]
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
 
-permissions:
-  actions: write
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: auto-approve
+  cancel-in-progress: false
 
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    # workflow_dispatch runs already bypass the gate — nothing to replace.
-    # Only act for allowed actors (update this list to add/remove actors).
-    if: >-
-      github.event.workflow_run.event != 'workflow_dispatch' &&
-      contains(fromJson('["i9wa4","Copilot","copilot-swe-agent[bot]"]'),
-               github.event.workflow_run.actor.login)
+    timeout-minutes: 5
+    permissions:
+      actions: write
+
     steps:
-      - name: Dispatch replacement and cancel blocked run
-        # Pass all ${{ }} values through env vars to prevent script injection
-        # (branch names or paths could otherwise embed shell metacharacters).
-        run: |
-          WORKFLOW_FILE=${WF_PATH##*/}
-          gh workflow run "$WORKFLOW_FILE" --ref "$WF_BRANCH" -R "$REPO"
-          # Wait for the new run to register before cancelling the blocked run,
-          # to avoid a race where cancel arrives before the replacement is queued.
-          # 5 s is empirically sufficient for GitHub to enqueue the new run.
-          sleep 5
-          gh api --method POST "repos/$REPO/actions/runs/$WF_RUN_ID/cancel" 2>/dev/null || true
+      - name: Re-dispatch blocked workflow runs for allowlisted actors
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WF_PATH: ${{ github.event.workflow_run.path }}
-          WF_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          WF_RUN_ID: ${{ github.event.workflow_run.id }}
           REPO: ${{ github.repository }}
+        run: |
+          ALLOWED_ACTORS='["i9wa4","Copilot","copilot-swe-agent[bot]","dependabot[bot]"]'
+          ALLOWED_WORKFLOWS='["ci","Branch Preview"]'
+
+          gh api "repos/$REPO/actions/runs?status=action_required&per_page=100" \
+            | jq -c '.workflow_runs[]' | while IFS= read -r run_json; do
+
+            ACTOR=$(printf '%s' "$run_json" | jq -r '.actor.login')
+            WF_NAME=$(printf '%s' "$run_json" | jq -r '.name')
+            RUN_ID=$(printf '%s' "$run_json" | jq -r '.id')
+            WF_PATH=$(printf '%s' "$run_json" | jq -r '.path')
+            WF_BRANCH=$(printf '%s' "$run_json" | jq -r '.head_branch')
+
+            if ! printf '%s' "$ALLOWED_ACTORS" \
+                | jq -e --arg a "$ACTOR" 'contains([$a])' > /dev/null 2>&1; then
+              echo "Skipping run $RUN_ID: actor $ACTOR not in allowlist"
+              continue
+            fi
+
+            if ! printf '%s' "$ALLOWED_WORKFLOWS" \
+                | jq -e --arg w "$WF_NAME" 'contains([$w])' > /dev/null 2>&1; then
+              echo "Skipping run $RUN_ID: workflow $WF_NAME not in allowlist"
+              continue
+            fi
+
+            WORKFLOW_FILE=${WF_PATH##*/}
+            echo "Re-dispatching $WF_NAME (run $RUN_ID) for actor $ACTOR on $WF_BRANCH"
+            gh workflow run "$WORKFLOW_FILE" --ref "$WF_BRANCH" -R "$REPO"
+            sleep 5
+            gh api --method POST "repos/$REPO/actions/runs/$RUN_ID/cancel" \
+              || echo "warn: cancel failed for run $RUN_ID (exit $?) — will retry next cycle"
+          done
