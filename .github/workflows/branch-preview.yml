@@ -50,7 +50,9 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
-          SAFE_BRANCH=$(printf '%s' "$REF_NAME" | sed 's/[^a-zA-Z0-9_-]/-/g')
+          SLUG=$(printf '%s' "$REF_NAME" | sed 's/[^a-zA-Z0-9_-]/-/g')
+          HASH=$(printf '%s' "$REF_NAME" | sha256sum | cut -c1-8)
+          SAFE_BRANCH="${SLUG}-${HASH}"
           echo "SAFE_BRANCH=$SAFE_BRANCH" >> "$GITHUB_ENV"
           sed -i "s|basePath:.*|basePath: /$REPO_NAME/branch/$SAFE_BRANCH|" evidence.config.yaml
 

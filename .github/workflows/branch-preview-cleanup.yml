@@ -34,7 +34,9 @@ jobs:
         env:
           REF_NAME: ${{ github.event.ref }}
         run: |
-          SAFE_BRANCH=$(printf '%s' "$REF_NAME" | sed 's/[^a-zA-Z0-9_-]/-/g')
+          SLUG=$(printf '%s' "$REF_NAME" | sed 's/[^a-zA-Z0-9_-]/-/g')
+          HASH=$(printf '%s' "$REF_NAME" | sha256sum | cut -c1-8)
+          SAFE_BRANCH="${SLUG}-${HASH}"
           if [ -d "branch/$SAFE_BRANCH" ]; then
             git config user.name  "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
