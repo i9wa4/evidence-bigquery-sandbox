@@ -8,7 +8,7 @@ Market basket analysis answers this question with three complementary metrics.
 **Support** = % of all orders that contain both categories.
 **Confidence A→B** = % of Category A orders that also include Category B.
 **Lift** = how much more (or less) likely a pair co-occurs compared with chance.
-Lift > 1 means positive affinity; lift < 1 means customers rarely combine those categories.
+Lift > 1 means positive affinity; lift &lt; 1 means customers rarely combine those categories.
 
 </Note>
 
@@ -71,7 +71,7 @@ ORDER BY category_a, category_b
 
 - **Lift = 1.0**: categories co-occur at the rate expected if purchases were independent.
 - **Lift > 1.0**: positive affinity — customers combine these categories more often than expected.
-- **Lift < 1.0**: negative affinity — customers rarely buy both in the same order.
+- **Lift &lt; 1.0**: negative affinity — customers rarely buy both in the same order.
 
 The matrix is symmetric: lift(A, B) = lift(B, A).
 
