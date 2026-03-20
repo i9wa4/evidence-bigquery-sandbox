@@ -1,38 +1,52 @@
-name: Auto-approve Workflow Runs
-run-name: auto-approve workflow runs
+name: Auto-approve Workflows and PRs
+run-name: auto-approve (${{ github.event_name }})
 
-# GitHub treats the Copilot bot as an "outside collaborator" and blocks its
-# workflow runs with action_required, even under the "Require approval for
-# first-time contributors who are new to GitHub" setting.
+# Two mechanisms coexist in this file:
 #
-# Workaround: every 10 minutes, query the API for action_required runs from
-# allowlisted actors, re-dispatch each via workflow_dispatch (which bypasses
-# the gate), then cancel the original blocked run.
+# 1. dispatch job (schedule trigger):
+#    Re-dispatches action_required CI workflow runs via gh workflow run.
+#    Operates at the workflow-run layer. Retained from M7 (commit c71cb3c).
 #
-# schedule: is used instead of workflow_run: because schedule triggers are
-# always approved by GitHub. A workflow_run trigger from a restricted actor
-# may itself be blocked by the approval gate, making the fix self-defeating.
+# 2. approve job (pull_request_target trigger):
+#    Approves Copilot PRs for merge via gh pr review --approve.
+#    Operates at the PR review layer. New capability added here.
 #
-# VERIFY: after deploying, create a test Copilot PR and confirm that the
-# action_required run is re-dispatched within 10 minutes.
+# Each job fires only for its intended trigger via job-level if: conditions.
+#
+# SECURITY CONSTRAINT (approve job): Do NOT add actions/checkout here.
+# pull_request_target runs with base-branch (main) permissions.
+# Checking out PR code (ref: github.event.pull_request.head.ref) with those
+# permissions is a "pwn-request" vulnerability — untrusted code gets write access.
+#
+# GATE RISK: pull_request_target may itself be subject to action_required for
+# outside-collaborator PRs. Verify empirically before deploying (plan-17eb.md AC 8).
+#
+# FALLBACK: workflow_dispatch fires the dispatch job for manual backlog clearing.
 
 on:
   schedule:
     - cron: '*/10 * * * *'
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 defaults:
   run:
     shell: bash
 
-concurrency:
-  group: auto-approve
-  cancel-in-progress: false
+# Defense-in-depth: workflow-level permissions denied by default.
+# Each job declares only the permissions it explicitly needs.
+permissions: {}
 
 jobs:
   dispatch:
+    # Re-dispatch action_required CI runs. Runs on schedule and workflow_dispatch only.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: auto-approve
+      cancel-in-progress: false
     permissions:
       actions: write
 
@@ -73,3 +87,42 @@ jobs:
             gh api --method POST "repos/$REPO/actions/runs/$RUN_ID/cancel" \
               || echo "warn: cancel failed for run $RUN_ID (exit $?) — will retry next cycle"
           done
+
+  approve:
+    # Approve PR for merge via gh pr review --approve. Runs on pull_request_target only.
+    # SECURITY: No actions/checkout — pull_request_target + checkout = pwn-request.
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      contains(
+        fromJson('["i9wa4","Copilot","copilot-swe-agent[bot]","dependabot[bot]"]'),
+        github.event.pull_request.user.login
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    concurrency:
+      group: auto-approve-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      pull-requests: write
+
+    steps:
+      # SECURITY: No actions/checkout step here.
+      # pull_request_target + checkout(PR branch) = pwn-request vulnerability.
+
+      - name: Approve pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Idempotency guard: skip if a Bot approval already exists.
+          # gh pr review --approve exits non-zero when called on an already-approved PR.
+          # Note: gh api without --paginate returns up to 30 reviews; sufficient in practice.
+          APPROVED=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+            | jq '[.[] | select(.state == "APPROVED" and .user.type == "Bot")] | length')
+          if [ "$APPROVED" -gt 0 ]; then
+            echo "PR #$PR_NUMBER already has a bot approval — skipping."
+            exit 0
+          fi
+          echo "Approving PR #$PR_NUMBER in $REPO"
+          gh pr review "$PR_NUMBER" --approve --repo "$REPO"
