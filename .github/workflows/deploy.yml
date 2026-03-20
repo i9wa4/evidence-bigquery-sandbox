@@ -13,8 +13,8 @@ defaults:
     shell: bash
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: gh-pages-publish
+  cancel-in-progress: false
 
 jobs:
   deploy:
