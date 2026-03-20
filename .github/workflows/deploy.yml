@@ -2,8 +2,9 @@ name: Deploy Evidence Dashboard
 run-name: ${{ github.event_name }} on ${{ github.ref_name }} by @${{ github.actor }}
 
 on:
-  push:
-    branches: main
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
   workflow_dispatch:
 
 permissions: {}
@@ -18,6 +19,10 @@ concurrency:
 
 jobs:
   deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
