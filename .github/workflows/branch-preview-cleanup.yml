@@ -24,13 +24,28 @@ jobs:
       contents: write
 
     steps:
+      - name: Check if gh-pages branch exists
+        id: check-gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          if gh api "repos/$REPO/branches/gh-pages" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "gh-pages branch does not exist — nothing to clean up."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check out gh-pages branch
+        if: steps.check-gh-pages.outputs.exists == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: gh-pages
-          persist-credentials: true
+          persist-credentials: true  # required: cleanup step pushes directly to gh-pages
 
       - name: Remove branch preview directory
+        if: steps.check-gh-pages.outputs.exists == 'true'
         env:
           REF_NAME: ${{ github.event.ref }}
         run: |

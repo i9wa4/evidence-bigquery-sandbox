@@ -55,6 +55,10 @@ jobs:
           SAFE_BRANCH="${SLUG}-${HASH}"
           echo "SAFE_BRANCH=$SAFE_BRANCH" >> "$GITHUB_ENV"
           sed -i "s|basePath:.*|basePath: /$REPO_NAME/branch/$SAFE_BRANCH|" evidence.config.yaml
+          if ! grep -q "basePath: /$REPO_NAME/branch/$SAFE_BRANCH" evidence.config.yaml; then
+            echo "ERROR: basePath substitution failed in evidence.config.yaml" >&2
+            exit 1
+          fi
 
       - name: Fetch data sources (BigQuery)
         run: npm run sources
