@@ -1,0 +1,1 @@
+[{"name":"order_id","evidenceType":"number","typeFidelity":"precise"},{"name":"user_id","evidenceType":"number","typeFidelity":"precise"},{"name":"status","evidenceType":"string","typeFidelity":"precise"},{"name":"num_of_item","evidenceType":"number","typeFidelity":"precise"},{"name":"created_at","evidenceType":"date","typeFidelity":"precise"}]
